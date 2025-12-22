@@ -77,39 +77,37 @@ struct CameraView: View {
             if manager.capturedPhoto == nil {
                 VStack {
                     Spacer()
-                    
+                                
                     // Controls container
-                    VStack(spacing: 20) {
-                        // Sound carousel placeholder
+                    VStack(spacing: 30) {
+                                    
+                        // 1. Sound Carousel (Real Component)
                         SoundCarouselView()
-                            .frame(height: 80) // Constrain height so it doesn't expand
+                            .frame(height: 80)
                             .disabled(manager.captureState.isCapturing)
                             .opacity(manager.captureState.isCapturing ? 0.5 : 1.0)
-                        
-                        // Shutter button
-                        Button {
-                            Task {
-                                await manager.startCapture()
-                            }
-                        } label: {
-                            Circle()
-                                .fill(Color.white)
-                                .frame(width: 70, height: 70)
-                                .overlay(
-                                    Circle()
-                                        .stroke(Color.white, lineWidth: 3)
-                                        .frame(width: 80, height: 80)
-                                )
+                                    
+                        HStack(alignment: .center, spacing: 40) {
+                                        
+                            // 2. Timer Wheel (Real Component)
+                            TimerWheelView()
+                                .disabled(manager.captureState.isCapturing)
+                                .opacity(manager.captureState.isCapturing ? 0.5 : 1.0)
+                                        
+                            // 3. Shutter Button (Your Custom Component)
+                            CaptureButton(
+                                isEnabled: !manager.captureState.isCapturing,
+                                action: {
+                                    Task {
+                                        await manager.startCapture()
+                                    }
+                                }
+                            )
+                                        
+                            // Spacer to balance the layout visually (since Timer is on left)
+                            Spacer()
+                                .frame(width: 60)
                         }
-                        .disabled(manager.captureState.isCapturing)
-                        .opacity(manager.captureState.isCapturing ? 0.5 : 1.0)
-                        
-                        // Timer toggle placeholder
-                        Text("Timer: \(String(format: "%.1f", manager.timerDelay))s")
-                            .foregroundColor(.white)
-                            .padding()
-                            .background(Color.black.opacity(0.6))
-                            .cornerRadius(8)
                     }
                     .padding(.bottom, 40)
                 }
