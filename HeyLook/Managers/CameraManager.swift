@@ -38,7 +38,7 @@ final class CameraManager {
     private let audioManager: AudioManager
     
     /// Current timer delay setting (in seconds)
-    var timerDelay: TimeInterval = 1.0
+    var timerDelay: TimeInterval = 0.5 // Default to 0.5s for quick reactions
     
     /// Visual countdown enabled flag
     var visualCountdownEnabled: Bool = true
@@ -54,13 +54,6 @@ final class CameraManager {
     
     init(audioManager: AudioManager) {
         self.audioManager = audioManager
-        
-        // Set up audio callback for state transitions
-        audioManager.onSoundFinished = { [weak self] in
-            Task { @MainActor in
-                await self?.transitionToCountdown()
-            }
-        }
     }
     
     // MARK: - Camera Setup
@@ -76,7 +69,6 @@ final class CameraManager {
                 print("❌ Camera permission denied")
                 return
             }
-            // If granted, we continue to setup
         } else if status != .authorized {
             print("❌ Camera permission not granted")
             return
@@ -97,10 +89,7 @@ final class CameraManager {
         captureSession.commitConfiguration()
         
         // 3. Start Running
-        // Capture session reference on Main Actor before entering background task
         let session = self.captureSession
-        
-        // Start session on background thread (no self access needed)
         Task.detached {
             session.startRunning()
         }
@@ -108,12 +97,10 @@ final class CameraManager {
     
     /// Adds camera input for specified position
     private func addCameraInput(position: AVCaptureDevice.Position) async {
-        // Remove existing input
         if let currentInput = currentCameraInput {
             captureSession.removeInput(currentInput)
         }
         
-        // Get camera for position
         guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position),
               let input = try? AVCaptureDeviceInput(device: camera) else {
             print("❌ Failed to create camera input for position: \(position)")
@@ -128,7 +115,6 @@ final class CameraManager {
     
     // MARK: - Camera Controls
     
-    /// Flips between front and rear camera
     func flipCamera() async {
         let newPosition: AVCaptureDevice.Position = cameraPosition == .back ? .front : .back
         
@@ -139,110 +125,82 @@ final class CameraManager {
         cameraPosition = newPosition
     }
     
-    /// Cycles flash mode (off → auto → on → off)
     func toggleFlashMode() {
         switch flashMode {
-        case .off:
-            flashMode = .auto
-        case .auto:
-            flashMode = .on
-        case .on:
-            flashMode = .off
-        @unknown default:
-            flashMode = .off
+        case .off: flashMode = .auto
+        case .auto: flashMode = .on
+        case .on: flashMode = .off
+        @unknown default: flashMode = .off
         }
     }
     
-    /// Returns the capture session for preview layer
     func getCaptureSession() -> AVCaptureSession {
         return captureSession
     }
     
     // MARK: - Capture Flow
     
-    /// Starts the capture sequence (only allowed from .idle state)
+    /// Starts the capture sequence: Sound + Timer run in parallel
     func startCapture() async {
-        guard captureState.canStartCapture else {
-            print("⚠️ Cannot start capture - current state: \(captureState)")
-            return
-        }
+        guard !captureState.isCapturing else { return }
         
-        // Transition to playingSound
-        captureState = .playingSound
+        // 1. Lock the UI
+        captureState = .capturing
         
-        // Play selected attention sound (AudioManager will call onSoundFinished when complete)
+        // 2. Start the Sound (Fire & Forget)
         audioManager.playSelectedSound()
-    }
-    
-    /// Transitions to countdown state (called by AudioManager callback)
-    private func transitionToCountdown() async {
-        guard captureState == .playingSound else { return }
         
-        captureState = .countingDown
+        // 3. Start the Timer (In parallel with the sound)
+        // This ensures we snap the photo while the animal is still looking
+        try? await Task.sleep(nanoseconds: UInt64(timerDelay * 1_000_000_000))
         
-        // Start countdown timer
-        countdownTask = Task {
-            try? await Task.sleep(for: .seconds(timerDelay))
-            
-            // Check if task was cancelled (abort scenario)
-            guard !Task.isCancelled else { return }
-            
-            await capturePhoto()
-        }
+        // 4. Snap the Photo
+        capturePhoto()
     }
     
     /// Captures the photo
-    private func capturePhoto() async {
-        guard captureState == .countingDown else { return }
+    private func capturePhoto() {
+        // 1. STOP the animal sound immediately (The "Cut-off")
+        audioManager.stopAllSounds()
         
-        captureState = .capturing
-        
-        // Play shutter sound
+        // 2. Play shutter sound (The "Click")
         audioManager.playShutterSound()
         
-        // Configure photo settings
         let settings = AVCapturePhotoSettings()
         settings.flashMode = flashMode
         
-        // Create and RETAIN delegate to prevent deallocation before capture completes
+        // Create and RETAIN delegate
         activePhotoDelegate = PhotoCaptureDelegate { [weak self] image in
             Task { @MainActor in
                 await self?.processPhoto(image)
-                // Clear delegate after processing
                 self?.activePhotoDelegate = nil
             }
         }
         
-        // Capture photo
         photoOutput.capturePhoto(with: settings, delegate: activePhotoDelegate!)
     }
     
     /// Processes captured photo and transitions to review
     private func processPhoto(_ image: UIImage?) async {
         captureState = .processing
-        
-        // Store photo in memory (not saved to library yet)
         capturedPhoto = image
-        
-        // Transition back to idle (review screen will be shown by UI)
         captureState = .idle
     }
     
     // MARK: - Photo Actions
     
-    /// Saves the captured photo to Photos library
     func savePhoto() async throws {
-        guard capturedPhoto != nil else {
+        guard let photo = capturedPhoto else {
             throw CameraError.noPhotoToSave
         }
         
-        // Request Photos permission if needed
-        // (This will be handled by PhotoStorageManager in future)
-        // For now, just clear the photo
+        // Simple save to Camera Roll
+        UIImageWriteToSavedPhotosAlbum(photo, nil, nil, nil)
+        
+        // Close review screen
         capturedPhoto = nil
     }
     
-    /// Discards the captured photo and returns to camera
     func retakePhoto() {
         capturedPhoto = nil
         captureState = .idle
@@ -250,19 +208,12 @@ final class CameraManager {
     
     // MARK: - Abort Handling
     
-    /// Aborts current capture sequence (called when app backgrounds or is interrupted)
     func abortCapture() {
-        // Cancel countdown timer
         countdownTask?.cancel()
         countdownTask = nil
-        
-        // Stop audio
         audioManager.stopAllSounds()
-        
-        // Transition to aborted, then idle
         captureState = .aborted
         
-        // Clean transition back to idle
         Task {
             try? await Task.sleep(for: .milliseconds(100))
             captureState = .idle
@@ -272,7 +223,6 @@ final class CameraManager {
 
 // MARK: - Photo Capture Delegate
 
-/// Handles photo capture completion
 private class PhotoCaptureDelegate: NSObject, AVCapturePhotoCaptureDelegate {
     private let completion: (UIImage?) -> Void
     
@@ -292,10 +242,6 @@ private class PhotoCaptureDelegate: NSObject, AVCapturePhotoCaptureDelegate {
     }
 }
 
-// MARK: - Errors
-
 enum CameraError: Error {
     case noPhotoToSave
-    case permissionDenied
-    case captureSessionFailed
 }

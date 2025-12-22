@@ -12,115 +12,150 @@ struct CameraView: View {
     @Environment(AudioManager.self) private var audioManager
     @Environment(\.scenePhase) private var scenePhase
     
+    // For the flash animation
+    @State private var showFlash: Bool = false
+    
     var body: some View {
-        ZStack {
-            // Bottom layer: Live camera preview
-            if manager.capturedPhoto == nil {
-                CameraPreviewView(
-                    session: manager.getCaptureSession(),
-                    currentDevice: manager.currentDevice
-                )
-                .ignoresSafeArea()
-            }
-            
-            // Photo review overlay (when photo is captured)
-            if let photo = manager.capturedPhoto {
-                Image(uiImage: photo)
-                    .resizable()
-                    .scaledToFill()
-                    .ignoresSafeArea()
-            }
-            
-            // Top overlays (only visible when photo is captured)
-            if manager.capturedPhoto != nil {
-                VStack {
-                    HStack {
-                        // Retake button (top left)
-                        Button {
-                            manager.retakePhoto()
-                        } label: {
-                            Text("Retake")
-                                .font(.headline)
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 8)
-                                .background(Color.black.opacity(0.6))
-                                .cornerRadius(8)
-                        }
-                        .padding(.leading, 20)
-                        
-                        Spacer()
-                        
-                        // Save button (top right)
-                        Button {
-                            Task {
-                                try? await manager.savePhoto()
-                            }
-                        } label: {
-                            Text("Save")
-                                .font(.headline)
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 8)
-                                .background(Color.blue)
-                                .cornerRadius(8)
-                        }
-                        .padding(.trailing, 20)
+        GeometryReader { geometry in
+            VStack(spacing: 0) {
+                
+                // --------------------------------------------------------
+                // SECTION 1: Top Bar (Optional Black Space)
+                // --------------------------------------------------------
+                Color.black
+                    .frame(height: geometry.safeAreaInsets.top)
+                
+                // --------------------------------------------------------
+                // SECTION 2: The Viewfinder (Strict 4:3 Aspect Ratio)
+                // --------------------------------------------------------
+                ZStack {
+                    // A. Live Camera Feed
+                    if manager.capturedPhoto == nil {
+                        CameraPreviewView(
+                            session: manager.getCaptureSession(),
+                            currentDevice: manager.currentDevice
+                        )
                     }
-                    .padding(.top, 50)
                     
-                    Spacer()
+                    // B. Photo Review (Static Image)
+                    if let photo = manager.capturedPhoto {
+                        Image(uiImage: photo)
+                            .resizable()
+                            .scaledToFill() // Fill the 4:3 box
+                    }
+                    
+                    // C. Flash Overlay
+                    if showFlash {
+                        Color.white
+                    }
                 }
-            }
-            
-            // Bottom controls (only visible when NOT reviewing photo)
-            if manager.capturedPhoto == nil {
-                VStack {
-                    Spacer()
-                                
-                    // Controls container
-                    VStack(spacing: 30) {
-                                    
-                        // 1. Sound Carousel (Real Component)
-                        SoundCarouselView()
-                            .frame(height: 80)
-                            .disabled(manager.captureState.isCapturing)
-                            .opacity(manager.captureState.isCapturing ? 0.5 : 1.0)
-                                    
-                        HStack(alignment: .center, spacing: 40) {
-                                        
-                            // 2. Timer Wheel (Real Component)
-                            TimerWheelView()
+                // FORCE 4:3 Aspect Ratio (Width / Height = 3 / 4)
+                .aspectRatio(3/4, contentMode: .fit)
+                .frame(width: geometry.size.width)
+                .clipped()
+                .background(Color.black)
+                
+                // --------------------------------------------------------
+                // SECTION 3: Controls Area (Fills the bottom black space)
+                // --------------------------------------------------------
+                ZStack {
+                    Color.black.ignoresSafeArea()
+                    
+                    // A. REVIEW MODE CONTROLS
+                    if manager.capturedPhoto != nil {
+                        HStack(spacing: 60) {
+                            // Retake
+                            Button {
+                                manager.retakePhoto()
+                            } label: {
+                                ControlButton(icon: "xmark", color: .red, text: "Retake")
+                            }
+                            
+                            // Save
+                            Button {
+                                Task {
+                                    try? await manager.savePhoto()
+                                }
+                            } label: {
+                                ControlButton(icon: "checkmark", color: .green, text: "Save")
+                            }
+                        }
+                    }
+                    
+                    // B. LIVE CAMERA CONTROLS
+                    if manager.capturedPhoto == nil {
+                        VStack(spacing: 20) {
+                            
+                            // 1. Sound Carousel
+                            SoundCarouselView()
+                                .frame(height: 80)
                                 .disabled(manager.captureState.isCapturing)
                                 .opacity(manager.captureState.isCapturing ? 0.5 : 1.0)
-                                        
-                            // 3. Shutter Button (Your Custom Component)
-                            CaptureButton(
-                                isEnabled: !manager.captureState.isCapturing,
-                                action: {
-                                    Task {
-                                        await manager.startCapture()
+                            
+                            HStack(alignment: .center, spacing: 30) {
+                                
+                                // 2. Timer Wheel
+                                TimerWheelView()
+                                    .disabled(manager.captureState.isCapturing)
+                                    .opacity(manager.captureState.isCapturing ? 0.5 : 1.0)
+                                
+                                // 3. Shutter Button
+                                CaptureButton(
+                                    isEnabled: !manager.captureState.isCapturing,
+                                    action: {
+                                        Task {
+                                            await manager.startCapture()
+                                        }
                                     }
-                                }
-                            )
-                                        
-                            // Spacer to balance the layout visually (since Timer is on left)
-                            Spacer()
-                                .frame(width: 60)
+                                )
+                                
+                                // Spacer to balance Timer
+                                Spacer()
+                                    .frame(width: 60)
+                            }
                         }
+                        .padding(.bottom, 20)
                     }
-                    .padding(.bottom, 40)
                 }
             }
+            .ignoresSafeArea(.all, edges: .top) // We handle top safe area manually
         }
         .task {
             await manager.setupCamera()
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
-            // Abort capture if app backgrounds
             if newPhase == .background {
                 manager.abortCapture()
             }
+        }
+        .onChange(of: manager.capturedPhoto) { oldPhoto, newPhoto in
+            if newPhoto != nil {
+                withAnimation(.linear(duration: 0.1)) { showFlash = true }
+                withAnimation(.linear(duration: 0.5).delay(0.1)) { showFlash = false }
+            }
+        }
+    }
+}
+
+// Helper View for the Big Review Buttons
+struct ControlButton: View {
+    let icon: String
+    let color: Color
+    let text: String
+    
+    var body: some View {
+        VStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 24, weight: .bold))
+                .foregroundColor(.white)
+                .frame(width: 60, height: 60)
+                .background(color.opacity(0.8))
+                .clipShape(Circle())
+            
+            Text(text)
+                .font(.caption)
+                .fontWeight(.bold)
+                .foregroundColor(.white)
         }
     }
 }
@@ -129,4 +164,5 @@ struct CameraView: View {
     CameraView()
         .environment(CameraManager(audioManager: AudioManager()))
         .environment(AudioManager())
+        .background(Color.black)
 }
