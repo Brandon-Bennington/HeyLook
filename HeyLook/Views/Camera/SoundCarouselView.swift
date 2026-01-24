@@ -39,6 +39,7 @@ struct SoundBubble: View {
     
     var body: some View {
         ZStack {
+            // Background Circle
             Circle()
                 .fill(Color.blue.opacity(0.8))
                 .frame(width: 60, height: 60)
@@ -50,15 +51,31 @@ struct SoundBubble: View {
                     .frame(width: 60, height: 60)
             }
             
-            // First letter of sound name
-            Text(sound.name.prefix(1))
-                .font(.title)
-                .fontWeight(.bold)
-                .foregroundColor(.white)
+            // EMOJI (Replaces the First Letter)
+            Text(emojiFor(name: sound.name))
+                .font(.system(size: 30)) // Increased size for emoji
+                .shadow(radius: isSelected ? 0 : 2)
         }
         .scaleEffect(isSelected ? 1.1 : 1.0)
         .opacity(isSelected ? 1.0 : 0.6)
         .animation(.bouncy, value: isSelected)
+    }
+    
+    // Helper: Maps the Sound Name to an Emoji
+    private func emojiFor(name: String) -> String {
+        switch name.lowercased() {
+        case "duck":    return "🦆"
+        case "cow":     return "🐮"
+        case "dog":     return "🐶"
+        case "cat":     return "🐱"
+        case "boing":   return "🌀"
+        case "whistle": return "😗"
+        case "pop":     return "💥"
+        case "bell":    return "🔔"
+        case "chime":   return "✨"
+        case "shutter": return "📸"
+        default:        return "🎵"
+        }
     }
 }
 
