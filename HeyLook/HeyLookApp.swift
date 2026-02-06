@@ -16,17 +16,22 @@ struct HeyLookApp: App {
     /// We declare these as @State so they stay alive for the entire app lifecycle
     @State private var audioManager: AudioManager
     @State private var cameraManager: CameraManager
+    @State private var settingsManager: SettingsManager
     
     // MARK: - Initialization
     
     init() {
-        // 1. Create the Audio Manager first (it has no dependencies)
+        // 1. Create the Settings Manager first (stores user preferences)
+        let settings = SettingsManager()
+        
+        // 2. Create the Audio Manager (it has no dependencies)
         let audio = AudioManager()
         
-        // 2. Inject Audio Manager into Camera Manager
-        let camera = CameraManager(audioManager: audio)
+        // 3. Inject Audio Manager and Settings Manager into Camera Manager
+        let camera = CameraManager(audioManager: audio, settingsManager: settings)
         
-        // 3. Store them in State
+        // 4. Store them in State
+        _settingsManager = State(initialValue: settings)
         _audioManager = State(initialValue: audio)
         _cameraManager = State(initialValue: camera)
     }
@@ -35,8 +40,9 @@ struct HeyLookApp: App {
         WindowGroup {
             CameraView()
                 // Inject dependencies into the View Hierarchy
-                .environment(audioManager)
                 .environment(cameraManager)
+                .environment(audioManager)
+                .environment(settingsManager)
                 // Camera apps usually look best in Dark Mode
                 .preferredColorScheme(.dark)
                 .task {

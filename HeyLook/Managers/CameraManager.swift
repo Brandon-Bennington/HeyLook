@@ -37,6 +37,9 @@ final class CameraManager {
     /// Reference to AudioManager (injected)
     private let audioManager: AudioManager
     
+    /// Reference to SettingsManager (injected)
+    private let settingsManager: SettingsManager
+    
     /// Current timer delay setting (in seconds)
     var timerDelay: TimeInterval = 0.5 // Default to 0.5s for quick reactions
     
@@ -52,8 +55,9 @@ final class CameraManager {
     
     // MARK: - Initialization
     
-    init(audioManager: AudioManager) {
+    init(audioManager: AudioManager, settingsManager: SettingsManager) {
         self.audioManager = audioManager
+        self.settingsManager = settingsManager
     }
     
     // MARK: - Camera Setup
@@ -183,8 +187,88 @@ final class CameraManager {
     /// Processes captured photo and transitions to review
     private func processPhoto(_ image: UIImage?) async {
         captureState = .processing
-        capturedPhoto = image
+        
+        // Crop the image to match the selected aspect ratio
+        if var image = image {
+            // Mirror the image if using front camera to match viewfinder
+            if cameraPosition == .front {
+                image = flipImageHorizontally(image)
+            }
+            capturedPhoto = cropImage(image, toAspectRatio: settingsManager.selectedPhotoRatio.aspectRatio)
+        } else {
+            capturedPhoto = nil
+        }
+        
         captureState = .idle
+    }
+    
+    /// Crops an image to the specified aspect ratio
+    private func cropImage(_ image: UIImage, toAspectRatio targetRatio: CGFloat) -> UIImage {
+        // First, render the image with correct orientation
+        let normalizedImage = normalizeImageOrientation(image)
+        
+        let imageSize = normalizedImage.size
+        let imageRatio = imageSize.width / imageSize.height
+        
+        var cropRect: CGRect
+        
+        if abs(imageRatio - targetRatio) < 0.01 {
+            // Already at the correct ratio
+            return normalizedImage
+        } else if imageRatio > targetRatio {
+            // Image is wider than target - crop width
+            let newWidth = imageSize.height * targetRatio
+            let xOffset = (imageSize.width - newWidth) / 2
+            cropRect = CGRect(x: xOffset, y: 0, width: newWidth, height: imageSize.height)
+        } else {
+            // Image is taller than target - crop height
+            let newHeight = imageSize.width / targetRatio
+            let yOffset = (imageSize.height - newHeight) / 2
+            cropRect = CGRect(x: 0, y: yOffset, width: imageSize.width, height: newHeight)
+        }
+        
+        // Crop the image using UIGraphics to maintain quality
+        UIGraphicsBeginImageContextWithOptions(cropRect.size, false, normalizedImage.scale)
+        normalizedImage.draw(at: CGPoint(x: -cropRect.origin.x, y: -cropRect.origin.y))
+        let croppedImage = UIGraphicsGetImageFromCurrentImageContext()
+        UIGraphicsEndImageContext()
+        
+        return croppedImage ?? normalizedImage
+    }
+    
+    /// Normalizes image orientation by rendering it upright
+    private func normalizeImageOrientation(_ image: UIImage) -> UIImage {
+        // If already up, return as-is
+        if image.imageOrientation == .up {
+            return image
+        }
+        
+        UIGraphicsBeginImageContextWithOptions(image.size, false, image.scale)
+        image.draw(in: CGRect(origin: .zero, size: image.size))
+        let normalizedImage = UIGraphicsGetImageFromCurrentImageContext()
+        UIGraphicsEndImageContext()
+        
+        return normalizedImage ?? image
+    }
+    
+    /// Flips an image horizontally to mirror it
+    private func flipImageHorizontally(_ image: UIImage) -> UIImage {
+        // Create a new image context with the same size
+        UIGraphicsBeginImageContextWithOptions(image.size, false, image.scale)
+        guard let context = UIGraphicsGetCurrentContext() else { return image }
+        
+        // Flip the context horizontally
+        context.translateBy(x: image.size.width, y: 0)
+        context.scaleBy(x: -1.0, y: 1.0)
+        
+        // Draw the image in the flipped context (this respects orientation)
+        image.draw(in: CGRect(origin: .zero, size: image.size))
+        
+        // Get the flipped image
+        let flippedImage = UIGraphicsGetImageFromCurrentImageContext()
+        UIGraphicsEndImageContext()
+        
+        return flippedImage ?? image
     }
     
     // MARK: - Photo Actions

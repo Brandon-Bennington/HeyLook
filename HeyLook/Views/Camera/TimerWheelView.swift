@@ -25,7 +25,7 @@ struct TimerWheelView: View {
             }
         }
         .pickerStyle(.wheel)
-        .frame(width: 60, height: 100)
+        .frame(width: 60, height: 80)
         .background(
             RoundedRectangle(cornerRadius: 10)
                 .fill(Color.black.opacity(0.6))
@@ -36,6 +36,6 @@ struct TimerWheelView: View {
 
 #Preview {
     TimerWheelView()
-        .environment(CameraManager(audioManager: AudioManager()))
+        .environment(CameraManager(audioManager: AudioManager(), settingsManager: SettingsManager()))
         .background(Color.gray)
 }

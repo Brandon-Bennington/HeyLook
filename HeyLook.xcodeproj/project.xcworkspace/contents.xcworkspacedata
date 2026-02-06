@@ -4,4 +4,13 @@
    <FileRef
       location = "self:">
    </FileRef>
+   <FileRef
+      location = "group:SettingsManager.swift">
+   </FileRef>
+   <FileRef
+      location = "group:SettingsView.swift">
+   </FileRef>
+   <FileRef
+      location = "group:SettingsButton.swift">
+   </FileRef>
 </Workspace>

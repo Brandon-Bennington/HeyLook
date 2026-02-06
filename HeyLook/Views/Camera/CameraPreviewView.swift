@@ -25,6 +25,15 @@ struct CameraPreviewView: UIViewRepresentable {
             uiView.previewLayer.session = session
         }
         
+        // Mirror the preview for front camera
+        if let device = currentDevice {
+            let isFrontCamera = device.position == .front
+            if let connection = uiView.previewLayer.connection {
+                connection.automaticallyAdjustsVideoMirroring = false
+                connection.isVideoMirrored = isFrontCamera
+            }
+        }
+        
         // Pass the device AND the layer to the coordinator
         if let device = currentDevice {
             context.coordinator.setupRotation(for: uiView, device: device)
